@@ -1,0 +1,42 @@
+name: ${APP}-dev-env
+
+services:
+  backend_pocketbase:
+    build:
+      context: .
+      dockerfile: dockerfile-pocketbase
+    image: ${APP}-pocketbase-dev-img
+    container_name: ${APP}-dev-pocketbase-container
+    environment:
+      - VE_PB_PORT=8090
+    volumes:
+      - ../backend/pocketbase/migrations:/pb/pb_migrations
+      - ../backend/pocketbase/pb_hooks:/pb/pb_hooks
+      - ../backend/pocketbase/pb_data:/pb/pb_data
+    ports:
+      - '${POCKETBASE_PORT}:${POCKETBASE_PORT}'
+    healthcheck:
+      test: ['CMD-SHELL', "pgrep pocketbase && echo 'Pocketbase is running...' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: dockerfile-web
+    image: ${APP}-webapp-dev-img
+    container_name: ${APP}-dev-web-container
+    user: node
+    ports:
+      - '${WEB_PORT}:${WEB_PORT}'
+    environment:
+      - BACKEND_POCKETBASE_API_URL=http://backend_pocketbase:${POCKETBASE_PORT}
+    volumes:
+      - ../:/home/node/workspace:cached
+      - ${HOME}/.local/share/pnpm:/home/node/.local/share/pnpm:cached
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    depends_on:
+      backend_pocketbase:
+        condition: service_healthy

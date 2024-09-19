@@ -1,0 +1,114 @@
+name: ${APP}-stag-env
+
+secrets:
+  cloudflare-token:
+    file: "./traefik/secrets/cloudflare-token.secret"
+  cloudflare-email:
+    file: "./traefik/secrets/cloudflare-email.secret"
+
+services:
+  reverse-proxy:
+    image: traefik:latest
+    container_name: ${APP}-stag-reverse-proxy-container
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    ports:
+      - 80:80
+      - 443:443
+    secrets:
+      - "cloudflare-token"
+      - "cloudflare-email"
+    environment:
+      TRAEFIK_DASHBOARD_CREDENTIALS: ${TRAEFIK_DASHBOARD_CREDENTIALS}
+      CF_DNS_API_TOKEN_FILE: /run/secrets/cloudflare-token
+      CF_API_EMAIL_FILE: /run/secrets/cloudflare-email
+    env_file: .env
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/traefik.yml:ro
+      - ./traefik/acme.json:/acme.json
+      - ./traefik/config.yml:/config.yml:ro
+      - ./traefik/logs:/var/log/traefik
+    labels:
+      - traefik.enable=true
+      # Middlewares
+      - traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_CREDENTIALS}
+      - traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forwarded-Proto=https
+
+      # Router traefik secure
+      - traefik.http.routers.tf_dashboard.entrypoints=https
+      # TODO: Create a CNAME dns record for the dashboard subdomain
+      - traefik.http.routers.tf_dashboard.rule=Host(`dashboard.example.com`)
+      - traefik.http.routers.tf_dashboard.middlewares=traefik-auth
+      - traefik.http.routers.tf_dashboard.service=api@internal
+
+  web:
+    # Base image defined at https://github.com/marcitqualab/base-images
+    image: ghcr.io/marcitqualab/base-images/frontend-node22-pnpm:main
+    container_name: ${APP}-stag-web-container
+    restart: unless-stopped
+    user: node
+    networks:
+      - proxy
+    labels:
+      #TODO: change the domain name
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`example.com`) || Host(`www.example.com`)
+      - traefik.http.routers.web.entrypoints=http
+      - traefik.http.routers.web.middlewares=redirect-to-https
+      - traefik.http.routers.webs.rule=Host(`example.com`) || Host(`www.example.com`)
+      - traefik.http.routers.webs.entrypoints=https
+      - traefik.http.routers.webs.tls=true
+      - traefik.http.routers.webs.tls.certresolver=cloudflare
+      - traefik.http.routers.webs.middlewares=redirect-to-non-www
+      - traefik.http.services.web.loadbalancer.server.port=${WEB_PORT}
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+      - traefik.http.middlewares.redirect-to-non-www.redirectregex.regex=^https?://www.example.com/(.*)
+      - traefik.http.middlewares.redirect-to-non-www.redirectregex.replacement=https://example.com/$${1}
+      - traefik.http.middlewares.redirect-to-non-www.redirectregex.permanent=true
+    environment:
+      - BACKEND_POCKETBASE_API_URL=http://backend_pocketbase:${POCKETBASE_PORT}
+    volumes:
+      - ../dist:/home/node/workspace/dist      
+      - ../astro.config.js:/home/node/workspace/astro.config.js
+      - ../pnpm-lock.yaml:/home/node/workspace/pnpm-lock.yaml
+      - ../package.json:/home/node/workspace/package.json
+      - ../package-lock.json:/home/node/workspace/package-lock.json
+    command: /bin/bash -c "pnpm install && npm install && node ./dist/server/entry.mjs"
+    # Debug mode
+    # command: >
+    #   /bin/sh -c "
+    #   trap : TERM INT; sleep infinity & wait"
+    depends_on:
+      backend_pocketbase:
+        condition: service_healthy
+
+  backend_pocketbase:
+    # Base image defined at https://github.com/marcitqualab/base-images
+    image: ghcr.io/marcitqualab/base-images/backend-alpine-pocketbase:main
+    container_name: ${APP}-stag-pocketbase-container
+    restart: unless-stopped
+    environment:
+      - VE_PB_PORT=8090
+    networks:
+      - proxy
+    volumes:
+      - ../backend/pocketbase/migrations:/pb/pb_migrations
+      - ../backend/pocketbase/pb_hooks:/pb/pb_hooks
+      - ../backend/pocketbase/pb_data:/pb/pb_data
+    healthcheck:
+      test: ['CMD-SHELL', "pgrep pocketbase && echo 'Pocketbase is running...' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  proxy:
+    name: proxy
+    external: true

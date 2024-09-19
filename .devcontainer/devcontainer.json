@@ -1,0 +1,42 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/debian
+{
+  // TODO: Update this name with a descriptive name for your environment.
+  "name": "Web app dev env template",
+  "dockerComposeFile": "../docker/docker-compose.yml",
+  "service": "web",
+  "workspaceFolder": "/home/node/workspace",
+  "shutdownAction": "stopCompose",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "mounts": [
+    //TODO: Setup the user specific gitconfig and ssh keys to enable git inside the container
+    "source=${localEnv:HOME}/.gitconfig,target=/home/node/.gitconfig,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.ssh/id_ed25519,target=/home/node/.ssh/id_ed25519,type=bind,consistency=cached"
+  ],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        //This prevents anoying vscode messages for new extensions recommendations.
+        "extensions.ignoreRecommendations": true
+      },
+      "extensions": [
+        //TODO: Add any extensions you want to install here.
+        "astro-build.astro-vscode",
+        "sheltonlouis.astro-snippets",
+        "astro-build.houston",
+        "mhutchie.git-graph",
+        "sourcegraph.cody-ai",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode",
+        "fallenmax.mithril-emmet",
+        "unifiedjs.vscode-mdx"
+        //"wallabyjs.console-ninja" Not yet supported until 12/2024
+      ]
+    }
+  },
+  // TODO: Add the ports you want to forward from the container to your local machine.
+  // These ports need to match the ports defined in the docker/.env file.
+  "forwardPorts": [3000, 8090]
+}
